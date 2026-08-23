@@ -1,118 +1,44 @@
 /**
- * تصميم فكّك: شجرة خطوات عربية تبين المسار من الهدف الكبير إلى الإجراء الصغير.
- * يستخدم الخط المتقطع والأختام الكمية لإبقاء التقدم مرئيًا وعمليًا.
+ * عرض هاتف فكّك: كل جلسة تفتح وتغلق، وكل مربع إنجاز يحدّث التقدم المحفوظ محليًا.
  */
 import { useState } from "react";
-import { BookOpen, Check, ChevronDown, ChevronUp, CircleDot, Dumbbell, ListTree, MoreHorizontal, PencilLine, Timer } from "lucide-react";
-import type { Session, TaskPlan } from "@/lib/taskPlanner";
+import { BookOpen, Check, ChevronDown, ChevronUp, Dumbbell, ListChecks, PencilLine, Target, Timer } from "lucide-react";
+import { answerChips, type Session, type TaskPlan } from "@/lib/taskPlanner";
 
-type TaskTreeProps = {
-  plan: TaskPlan;
-  onToggleTask: (sessionId: string, taskId: string) => void;
-  onEdit: () => void;
-  isAnalyzing: boolean;
-};
+type TaskTreeProps = { plan: TaskPlan; onToggleTask: (sessionId: string, taskId: string) => void; onRebuild: () => void; };
 
-function PlanIcon({ kind }: { kind: TaskPlan["icon"] }) {
-  if (kind === "book") return <BookOpen size={20} strokeWidth={1.9} />;
-  if (kind === "run") return <Dumbbell size={20} strokeWidth={1.9} />;
-  return <ListTree size={20} strokeWidth={1.9} />;
-}
+function PlanIcon({ kind }: { kind: TaskPlan["icon"] }) { if (kind === "book") return <BookOpen size={20} />; if (kind === "run") return <Dumbbell size={20} />; return <Target size={20} />; }
 
-function StepCard({ session, onToggleTask, number }: { session: Session; onToggleTask: (taskId: string) => void; number: number }) {
+function SessionCard({ session, number, onToggleTask }: { session: Session; number: number; onToggleTask: (taskId: string) => void }) {
   const [open, setOpen] = useState(number === 1);
-  const complete = session.subtasks.every((task) => task.done);
-  const doneCount = session.subtasks.filter((task) => task.done).length;
-
-  return (
-    <section className={`session-card ${complete ? "is-complete" : ""}`}>
-      <button className="session-head" onClick={() => setOpen((value) => !value)} aria-expanded={open}>
-        <span className="session-ordinal">{String(number).padStart(2, "0")}</span>
-        <span className="session-marker" aria-hidden="true">{complete ? <Check size={15} /> : <CircleDot size={16} />}</span>
-        <span className="session-title-wrap">
-          <span className="session-eyebrow">{session.label}</span>
-          <strong>{session.title}</strong>
-        </span>
-        <span className="metric-chip">{session.metric}</span>
-        <span className="session-chevron">{open ? <ChevronUp size={19} /> : <ChevronDown size={19} />}</span>
-      </button>
-
-      {open && (
-        <div className="session-tasks">
-          {session.subtasks.map((task) => (
-            <article className={`subtask-row ${task.done ? "is-done" : ""}`} key={task.id}>
-              <button
-                className="task-check"
-                onClick={() => onToggleTask(task.id)}
-                aria-label={task.done ? `إلغاء إنجاز ${task.title}` : `إنهاء ${task.title}`}
-                aria-pressed={task.done}
-              >
-                {task.done && <Check size={15} strokeWidth={3} />}
-              </button>
-              <div className="subtask-copy">
-                <h4>{task.title}</h4>
-                <p>{task.guidance}</p>
-              </div>
-              <div className="subtask-meta">
-                <span><Timer size={13} /> {task.metric}</span>
-                <button className="quiet-icon" aria-label={`خيارات ${task.title}`}><MoreHorizontal size={18} /></button>
-              </div>
-            </article>
-          ))}
-          <div className="session-footer">{doneCount}/{session.subtasks.length} مهام مكتملة</div>
-        </div>
-      )}
-    </section>
-  );
+  const completed = session.subtasks.filter((item) => item.done).length;
+  return <section className={`session-card ${completed === session.subtasks.length ? "is-complete" : ""}`}>
+    <button className="session-head" onClick={() => setOpen((state) => !state)} aria-expanded={open}>
+      <span className="session-index">{String(number).padStart(2, "0")}</span>
+      <span className="session-copy"><small>{session.label}</small><strong>{session.title}</strong></span>
+      <span className="session-metric">{session.metric}</span>{open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+    </button>
+    {open && <div className="session-tasks">{session.subtasks.map((item) => <article className={`subtask ${item.done ? "is-done" : ""}`} key={item.id}>
+      <button className="task-check" onClick={() => onToggleTask(item.id)} aria-label={item.done ? `إلغاء إنجاز ${item.title}` : `إنهاء ${item.title}`}>{item.done && <Check size={14} strokeWidth={3} />}</button>
+      <div><h4>{item.title}</h4><p>{item.guidance}</p><span><Timer size={12} />{item.metric}</span></div>
+    </article>)}</div>}
+  </section>;
 }
 
-export default function TaskTree({ plan, onToggleTask, onEdit, isAnalyzing }: TaskTreeProps) {
-  const [expanded, setExpanded] = useState(true);
-  const total = plan.sessions.reduce((count, session) => count + session.subtasks.length, 0);
-  const done = plan.sessions.reduce((count, session) => count + session.subtasks.filter((task) => task.done).length, 0);
-  const progress = total ? Math.round((done / total) * 100) : 0;
-
-  return (
-    <section className="plan-card">
-      <header className="plan-card-head">
-        <div className="goal-icon"><PlanIcon kind={plan.icon} /></div>
-        <div className="goal-copy">
-          <span className="eyebrow">الهدف الرئيسي</span>
-          <h2>{plan.title}</h2>
-          <p>{plan.summary}</p>
-        </div>
-        <div className="goal-actions">
-          <button className="ai-pencil" onClick={onEdit} disabled={isAnalyzing} aria-label="تفكيك المهمة بدقة">
-            {isAnalyzing ? <span className="mini-spinner" /> : <PencilLine size={19} />}
-          </button>
-          <button className="quiet-icon goal-more" aria-label="خيارات المهمة"><MoreHorizontal size={21} /></button>
-        </div>
-      </header>
-
-      <div className="plan-insight">
-        <span className="insight-mark">✦</span>
-        <p>{plan.detail}</p>
-      </div>
-
-      {plan.sessions.length > 0 ? (
-        <>
-          <div className="plan-progress-row">
-            <div><span>تقدّم الخطة</span><strong>{progress}%</strong></div>
-            <div className="linear-progress" aria-label={`نسبة التقدم ${progress}%`}><span style={{ width: `${progress}%` }} /></div>
-            <span className="progress-count">{done}/{total}</span>
-          </div>
-          <button className="tree-toggle" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>
-            <span><ListTree size={17} /> {expanded ? "إخفاء تفاصيل الخطة" : "إظهار تفاصيل الخطة"}</span>
-            {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-          </button>
-          {expanded && <div className="task-tree"><div className="thread-origin"><span>النية</span><i /></div>{plan.sessions.map((session, index) => <StepCard key={session.id} session={session} number={index + 1} onToggleTask={(taskId) => onToggleTask(session.id, taskId)} />)}<div className="thread-end">نقطة الإنجاز</div></div>}
-        </>
-      ) : (
-        <div className="empty-plan">
-          <PencilLine size={22} />
-          <div><strong>هذه المهمة أُضيفت.</strong><span>اضغط قلم التفكيك لتوليد خطة واضحة بأرقام وإرشادات.</span></div>
-        </div>
-      )}
-    </section>
-  );
+export default function TaskTree({ plan, onToggleTask, onRebuild }: TaskTreeProps) {
+  const total = plan.sessions.reduce((sum, session) => sum + session.subtasks.length, 0);
+  const completed = plan.sessions.reduce((sum, session) => sum + session.subtasks.filter((item) => item.done).length, 0);
+  const progress = total ? Math.round((completed / total) * 100) : 0;
+  const [showAll, setShowAll] = useState(false);
+  const shownSessions = showAll ? plan.sessions : plan.sessions.slice(0, 3);
+  return <section className="task-plan">
+    <header className="plan-heading"><span className="plan-kind"><PlanIcon kind={plan.icon} /></span><div><span>خطة مبنية على إجاباتك</span><h2>{plan.title}</h2><p>{plan.summary}</p></div><button className="rebuild-button" onClick={onRebuild} aria-label="تعديل الإجابات وإعادة بناء الخطة"><PencilLine size={17} /></button></header>
+    <div className="answer-chip-row">{answerChips(plan).map((chip) => <span key={chip}>{chip}</span>)}</div>
+    <div className="plan-insight">{plan.detail}</div>
+    <div className="progress-block"><div><span>الإنجاز</span><b>{completed}/{total}</b></div><div className="progress-track"><i style={{ width: `${progress}%` }} /></div><strong>{progress}%</strong></div>
+    <div className="timeline-label"><ListChecks size={17} /> مسار التنفيذ</div>
+    <div className="session-list">{shownSessions.map((session, index) => <SessionCard key={session.id} session={session} number={index + 1} onToggleTask={(taskId) => onToggleTask(session.id, taskId)} />)}</div>
+    {plan.sessions.length > 3 && <button className="show-more" onClick={() => setShowAll((value) => !value)}>{showAll ? "إظهار أول 3 جلسات فقط" : `إظهار كل الجلسات (${plan.sessions.length})`}{showAll ? <ChevronUp size={17} /> : <ChevronDown size={17} />}</button>}
+  </section>;
 }
+
