@@ -1,9 +1,10 @@
 import { and, desc, eq, inArray, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { getDb } from "./db";
-import { plannerConversations, plannerFocusSessions, plannerMemories } from "../drizzle/schema";
+import { plannerConversations, plannerFocusModes, plannerFocusSessions, plannerMemories } from "../drizzle/schema";
 
 export type StoredMessage = { role: "user" | "assistant"; content: string };
+export type FocusModeSnapshot = { workspaceId: string; strictEndsAt: number | null; continuePlan: boolean; conversationId: string | null };
 type BlockingSession = { stepTitle: string; status: "running" | "awaiting_reflection" | "completed" | "needs_replan" | "cancelled" };
 
 export function focusStartBlocker(active: BlockingSession | undefined) {
@@ -11,6 +12,21 @@ export function focusStartBlocker(active: BlockingSession | undefined) {
   if (active.status === "running") return `أنهِ جلسة «${active.stepTitle}» أولًا؛ لا يمكن تشغيل مؤقتين معًا.`;
   if (active.status === "awaiting_reflection") return `أجب عن نتيجة جلسة «${active.stepTitle}» أولًا قبل بدء جلسة جديدة.`;
   return null;
+}
+
+export function strictCancelBlocker(strictEndsAt: number | null, now = Date.now()) {
+  return strictEndsAt && strictEndsAt > now ? "الوضع الصارم نشط؛ لا يمكن إلغاء الجلسة حتى ينتهي وقت القفل." : null;
+}
+
+export function strictModeChangeBlocker(currentStrictEndsAt: number | null, requestedStrictDuration: number | null | undefined, now = Date.now()) {
+  return currentStrictEndsAt && currentStrictEndsAt > now && requestedStrictDuration !== undefined
+    ? "الوضع الصارم نشط؛ لا يمكن تعديل مدة القفل قبل انتهاء وقتها."
+    : null;
+}
+
+export function nextIncompleteStep<T extends { order: number }>(steps: T[] | undefined, completedStepOrders: number[]) {
+  const completed = new Set(completedStepOrders);
+  return steps?.find((step) => !completed.has(step.order)) ?? null;
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {
@@ -22,6 +38,41 @@ async function requireDb() {
   const db = await getDb();
   if (!db) throw new Error("التخزين الدائم غير متاح حاليًا.");
   return db;
+}
+
+function durationFromText(text: string) {
+  const normalized = text.replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)));
+  const minutes = normalized.match(/(\d+)\s*(?:دقيقة|دقائق|min)/i);
+  if (minutes) return Number(minutes[1]) * 60;
+  const hours = normalized.match(/(\d+)\s*(?:ساعة|ساعات|hour)/i);
+  return hours ? Number(hours[1]) * 3600 : 25 * 60;
+}
+
+async function currentFocusMode(workspaceId: string): Promise<FocusModeSnapshot> {
+  const db = await requireDb();
+  const [row] = await db.select().from(plannerFocusModes).where(eq(plannerFocusModes.workspaceId, workspaceId)).limit(1);
+  if (!row) return { workspaceId, strictEndsAt: null, continuePlan: false, conversationId: null };
+  if (row.strictEndsAt && row.strictEndsAt <= Date.now()) {
+    await db.update(plannerFocusModes).set({ strictEndsAt: null, updatedAt: new Date() }).where(eq(plannerFocusModes.workspaceId, workspaceId));
+    return { workspaceId, strictEndsAt: null, continuePlan: row.continuePlan, conversationId: row.conversationId };
+  }
+  return { workspaceId, strictEndsAt: row.strictEndsAt, continuePlan: row.continuePlan, conversationId: row.conversationId };
+}
+
+export async function getFocusMode(workspaceId: string) { return currentFocusMode(workspaceId); }
+
+export async function configureFocusMode(input: { workspaceId: string; strictDurationSeconds?: number | null; continuePlan: boolean; conversationId?: string | null }) {
+  const db = await requireDb();
+  const current = await currentFocusMode(input.workspaceId);
+  const changeBlocker = strictModeChangeBlocker(current.strictEndsAt, input.strictDurationSeconds);
+  if (changeBlocker) throw new Error(changeBlocker);
+  const strictEndsAt = input.strictDurationSeconds === undefined
+    ? current.strictEndsAt
+    : input.strictDurationSeconds ? Date.now() + Math.max(60, Math.min(input.strictDurationSeconds, 2_592_000)) * 1000 : null;
+  const conversationId = input.conversationId ?? null;
+  await db.insert(plannerFocusModes).values({ workspaceId: input.workspaceId, strictEndsAt, continuePlan: input.continuePlan, conversationId })
+    .onDuplicateKeyUpdate({ set: { strictEndsAt, continuePlan: input.continuePlan, conversationId, updatedAt: new Date() } });
+  return { workspaceId: input.workspaceId, strictEndsAt, continuePlan: input.continuePlan, conversationId } satisfies FocusModeSnapshot;
 }
 
 export async function createConversation(workspaceId: string, firstMessage: string) {
@@ -78,7 +129,7 @@ export async function deactivateMemory(workspaceId: string, id: string) {
   await db.update(plannerMemories).set({ isActive: false, updatedAt: new Date() }).where(and(eq(plannerMemories.workspaceId, workspaceId), eq(plannerMemories.id, id)));
 }
 
-export async function startFocusSession(input: { workspaceId: string; conversationId: string; stepOrder: number; stepTitle: string; durationSeconds: number }) {
+export async function startFocusSession(input: { workspaceId: string; conversationId: string; stepOrder: number; stepTitle: string; durationSeconds: number; strictDurationSeconds?: number; continuePlan?: boolean }) {
   const db = await requireDb();
   const now = Date.now();
   const expired = await db.select({ id: plannerFocusSessions.id }).from(plannerFocusSessions)
@@ -88,11 +139,15 @@ export async function startFocusSession(input: { workspaceId: string; conversati
     .where(and(eq(plannerFocusSessions.workspaceId, input.workspaceId), inArray(plannerFocusSessions.status, ["running", "awaiting_reflection"]))).limit(1);
   const blocker = focusStartBlocker(active[0]);
   if (blocker) throw new Error(blocker);
+  let mode = await currentFocusMode(input.workspaceId);
+  if (input.strictDurationSeconds !== undefined || input.continuePlan !== undefined) {
+    mode = await configureFocusMode({ workspaceId: input.workspaceId, strictDurationSeconds: input.strictDurationSeconds ?? (mode.strictEndsAt ? Math.ceil((mode.strictEndsAt - now) / 1000) : null), continuePlan: input.continuePlan ?? mode.continuePlan, conversationId: input.conversationId });
+  }
   const durationSeconds = Math.max(60, Math.min(input.durationSeconds, 86_400));
   const endsAt = now + durationSeconds * 1000;
   const id = nanoid();
   await db.insert(plannerFocusSessions).values({ id, workspaceId: input.workspaceId, conversationId: input.conversationId, stepOrder: input.stepOrder, stepTitle: input.stepTitle.slice(0, 400), durationSeconds, startedAt: now, endsAt, status: "running" });
-  return { id, endsAt, durationSeconds, status: "running" as const, stepOrder: input.stepOrder, stepTitle: input.stepTitle };
+  return { id, endsAt, durationSeconds, status: "running" as const, stepOrder: input.stepOrder, stepTitle: input.stepTitle, mode };
 }
 
 export async function getActionableSessions(workspaceId: string) {
@@ -135,4 +190,28 @@ export async function resolveFocusSession(input: { workspaceId: string; sessionI
   await db.update(plannerFocusSessions).set({ status: input.outcome, obstacle: input.obstacle?.slice(0, 1500) ?? null, updatedAt: new Date() })
     .where(and(eq(plannerFocusSessions.workspaceId, input.workspaceId), eq(plannerFocusSessions.id, input.sessionId)));
   return session;
+}
+
+export async function cancelFocusSession(input: { workspaceId: string; sessionId: string }) {
+  const db = await requireDb();
+  const mode = await currentFocusMode(input.workspaceId);
+  const strictBlocker = strictCancelBlocker(mode.strictEndsAt);
+  if (strictBlocker) throw new Error(strictBlocker);
+  const [session] = await db.select().from(plannerFocusSessions).where(and(eq(plannerFocusSessions.workspaceId, input.workspaceId), eq(plannerFocusSessions.id, input.sessionId))).limit(1);
+  if (!session) throw new Error("الجلسة المطلوبة لم تعد موجودة.");
+  if (!["running", "awaiting_reflection"].includes(session.status)) throw new Error("هذه الجلسة حُسمت بالفعل.");
+  await db.update(plannerFocusSessions).set({ status: "cancelled", updatedAt: new Date() }).where(and(eq(plannerFocusSessions.workspaceId, input.workspaceId), eq(plannerFocusSessions.id, input.sessionId)));
+  if (mode.continuePlan) await configureFocusMode({ workspaceId: input.workspaceId, continuePlan: false, conversationId: mode.conversationId });
+  return { ...session, status: "cancelled" as const };
+}
+
+export async function startNextFocusSession(input: { workspaceId: string; conversationId: string; plan: { steps?: { order: number; action: string; guidance?: string; quantity: string }[]; completedStepOrders?: number[] } }) {
+  const mode = await currentFocusMode(input.workspaceId);
+  if (!mode.continuePlan || (mode.conversationId && mode.conversationId !== input.conversationId)) return null;
+  const next = nextIncompleteStep(input.plan.steps, input.plan.completedStepOrders ?? []);
+  if (!next) {
+    await configureFocusMode({ workspaceId: input.workspaceId, continuePlan: false, conversationId: input.conversationId });
+    return null;
+  }
+  return startFocusSession({ workspaceId: input.workspaceId, conversationId: input.conversationId, stepOrder: next.order, stepTitle: next.action, durationSeconds: durationFromText(`${next.quantity} ${next.guidance ?? ""}`) });
 }

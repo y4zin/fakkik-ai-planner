@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
-import { AlarmClock, CheckCircle2, PauseCircle, TimerReset } from "lucide-react";
+import { AlarmClock, CheckCircle2, LockKeyhole, PauseCircle, TimerReset, XCircle } from "lucide-react";
 
 export type FocusSessionView = { id: string; conversationId?: string; stepOrder: number; stepTitle: string; durationSeconds: number; endsAt: number; status: "running" | "awaiting_reflection" | "completed" | "needs_replan" | "cancelled" };
 
 function clock(seconds: number) { const safe = Math.max(0, seconds); return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`; }
 
-export function FocusSessionCard({ session }: { session: FocusSessionView | null }) {
+export function FocusSessionCard({ session, strictEndsAt, onCancel, cancelling }: { session: FocusSessionView | null; strictEndsAt?: number | null; onCancel?: () => void; cancelling?: boolean }) {
   const [remaining, setRemaining] = useState(session ? Math.ceil((session.endsAt - Date.now()) / 1000) : 0);
   useEffect(() => { setRemaining(session ? Math.ceil((session.endsAt - Date.now()) / 1000) : 0); if (!session || session.status !== "running") return; const id = window.setInterval(() => setRemaining(Math.ceil((session.endsAt - Date.now()) / 1000)), 1000); return () => window.clearInterval(id); }, [session?.id, session?.endsAt, session?.status]);
   if (!session) return <section className="session-empty"><AlarmClock size={23} /><div><strong>لا توجد جلسة تعمل الآن</strong><span>اختر «ابدأ الآن» من أي خطوة، وسيستمر العداد حتى لو أغلقت الصفحة.</span></div></section>;
   const ended = session.status === "awaiting_reflection" || remaining <= 0;
-  return <section className={`focus-card ${ended ? "awaiting" : ""}`}><span className="focus-label">{ended ? "الوقت انتهى · نحتاج إجابتك" : "جلسة تركيز نشطة"}</span><h2>{session.stepTitle}</h2><div className="focus-clock"><TimerReset size={24} /><strong>{ended ? "00:00" : clock(remaining)}</strong></div><p>{ended ? "ارجع إلى المحادثة أو أجب عن سؤال الإكمال الذي ظهر لك." : "لا تحتاج للبقاء هنا؛ ستبقى الجلسة محفوظة حتى موعد نهايتها."}</p><span className="focus-duration"><PauseCircle size={13} />مدة الجلسة: {Math.round(session.durationSeconds / 60)} دقيقة</span></section>;
+  const strict = Boolean(strictEndsAt && strictEndsAt > Date.now());
+  return <section className={`focus-card ${ended ? "awaiting" : ""}`}><span className="focus-label">{ended ? "الوقت انتهى · نحتاج إجابتك" : "جلسة تركيز نشطة"}</span><h2>{session.stepTitle}</h2><div className="focus-clock"><TimerReset size={24} /><strong>{ended ? "00:00" : clock(remaining)}</strong></div><p>{ended ? "ارجع إلى المحادثة أو أجب عن سؤال الإكمال الذي ظهر لك." : "لا تحتاج للبقاء هنا؛ ستبقى الجلسة محفوظة حتى موعد نهايتها."}</p><span className="focus-duration"><PauseCircle size={13} />مدة الجلسة: {Math.round(session.durationSeconds / 60)} دقيقة</span>{strict ? <div className="strict-lock-note"><LockKeyhole size={15} /><span>الوضع الصارم مقفل حتى {new Date(strictEndsAt!).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" })}؛ لا يمكن الإلغاء.</span></div> : <button className="cancel-session" onClick={onCancel} disabled={cancelling || ended}><XCircle size={15} />{cancelling ? "جارٍ الإلغاء…" : "إلغاء الجلسة"}</button>}</section>;
 }
 
 export function CompletionQuestion({ session, onYes, onNo, busy }: { session: FocusSessionView | null; onYes: () => void; onNo: () => void; busy: boolean }) {

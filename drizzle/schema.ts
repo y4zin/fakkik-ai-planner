@@ -56,6 +56,16 @@ export const plannerFocusSessions = mysqlTable("plannerFocusSessions", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/** إعداد واحد لكل مساحة عمل للتحكم بالقفل الصارم والاستمرار بين خطوات الخطة. */
+export const plannerFocusModes = mysqlTable("plannerFocusModes", {
+  workspaceId: varchar("workspaceId", { length: 64 }).primaryKey(),
+  strictEndsAt: bigint("strictEndsAt", { mode: "number" }),
+  continuePlan: boolean("continuePlan").default(false).notNull(),
+  conversationId: varchar("conversationId", { length: 64 }),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export type PlannerConversation = typeof plannerConversations.$inferSelect;
 export type PlannerMemory = typeof plannerMemories.$inferSelect;
 export type PlannerFocusSession = typeof plannerFocusSessions.$inferSelect;
+export type PlannerFocusMode = typeof plannerFocusModes.$inferSelect;

@@ -1,0 +1,8 @@
+import { useState } from "react";
+import { AtSign, ShieldCheck, X } from "lucide-react";
+
+export function AccountSheet({ onClose, onConnect }: { onClose: () => void; onConnect: (email: string) => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  return <div className="account-layer" role="dialog" aria-modal="true" aria-label="حساب فكّك"><section className="account-sheet"><button className="sheet-close" onClick={onClose} aria-label="إغلاق"><X size={18} /></button><div className="account-icon"><ShieldCheck size={23} /></div><small>حساب فكّك</small><h2>احفظ خططك باسمك.</h2><p>واجهة الحساب تحمل هوية فكّك فقط. عند الربط ستنتقل محادثاتك وخططك وذاكرتك إلى حسابك الخاص، دون وسم ظاهر لخدمة الاستضافة.</p><label>البريد الإلكتروني<input value={email} onChange={(event) => setEmail(event.target.value)} type="email" autoComplete="email" placeholder="you@example.com" /></label><label>كلمة المرور<input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="new-password" placeholder="ثمانية أحرف على الأقل" /></label><button className="account-primary" onClick={() => onConnect(email)} disabled={!email.includes("@") || password.length < 8}><AtSign size={16} /> إنشاء حساب أو تسجيل الدخول</button><section className="account-setup"><strong>إعدادات الحفظ</strong><span>الحالة: حفظ محلي لهذا الجهاز</span><ol><li>أنشئ مشروع Supabase مجانيًا باسمك.</li><li>فعّل الدخول بالبريد وكلمة المرور.</li><li>أضف رابط المشروع ومفتاحه من إعدادات فكّك لتبدأ المزامنة.</li></ol></section><div className="account-note"><strong>ربط آمن جاهز</strong><span>سيُفعّل هذا الزر بعد إضافة مشروع Supabase المجاني؛ لا تُعرض مفاتيح الخدمة للمستخدم ولا تظهر علامتها في الواجهة.</span></div></section></div>;
+}

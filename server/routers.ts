@@ -4,7 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { generatedPlanSchema, planningChatInputSchema, planConversation, visibleAssistantContent } from "./planning";
-import { createConversation, deactivateMemory, getActionableSessions, getConversation, getConversationSessions, getFocusSession, listConversations, listMemories, listWorkspaceSessions, resolveFocusSession, saveConversation, saveMemories, startFocusSession, type StoredMessage } from "./plannerStore";
+import { cancelFocusSession, configureFocusMode, createConversation, deactivateMemory, getActionableSessions, getConversation, getConversationSessions, getFocusMode, getFocusSession, listConversations, listMemories, listWorkspaceSessions, resolveFocusSession, saveConversation, saveMemories, startFocusSession, startNextFocusSession, type StoredMessage } from "./plannerStore";
 import { persistUserTurnBeforePlanning } from "./chatTurn";
 
 const workspaceSchema = z.object({ workspaceId: z.string().min(12).max(64) });
@@ -62,10 +62,13 @@ export const appRouter = router({
     }),
   }),
   focus: router({
-    start: publicProcedure.input(workspaceSchema.extend({ conversationId: z.string().min(6).max(64), stepOrder: z.number().int().min(1), stepTitle: z.string().min(1).max(400), durationSeconds: z.number().int().min(60).max(86_400) })).mutation(({ input }) => startFocusSession(input)),
+    start: publicProcedure.input(workspaceSchema.extend({ conversationId: z.string().min(6).max(64), stepOrder: z.number().int().min(1), stepTitle: z.string().min(1).max(400), durationSeconds: z.number().int().min(60).max(86_400), strictDurationSeconds: z.number().int().min(60).max(2_592_000).optional(), continuePlan: z.boolean().optional() })).mutation(({ input }) => startFocusSession(input)),
     actionable: publicProcedure.input(workspaceSchema).query(({ input }) => getActionableSessions(input.workspaceId)),
     listWorkspace: publicProcedure.input(workspaceSchema).query(({ input }) => listWorkspaceSessions(input.workspaceId)),
     listForConversation: publicProcedure.input(workspaceSchema.extend({ conversationId: z.string().min(6).max(64) })).query(({ input }) => getConversationSessions(input.workspaceId, input.conversationId)),
+    mode: publicProcedure.input(workspaceSchema).query(({ input }) => getFocusMode(input.workspaceId)),
+    configureMode: publicProcedure.input(workspaceSchema.extend({ strictDurationSeconds: z.number().int().min(60).max(2_592_000).nullable().optional(), continuePlan: z.boolean(), conversationId: z.string().min(6).max(64).nullable().optional() })).mutation(({ input }) => configureFocusMode(input)),
+    cancel: publicProcedure.input(workspaceSchema.extend({ sessionId: z.string().min(6).max(64) })).mutation(({ input }) => cancelFocusSession(input)),
     resolve: publicProcedure.input(workspaceSchema.extend({ sessionId: z.string().min(6).max(64), outcome: z.enum(["completed", "needs_replan"]), obstacle: z.string().max(1500).optional() })).mutation(async ({ input }) => {
       const session = await resolveFocusSession(input);
       if (input.outcome === "completed" && session) {
@@ -77,7 +80,9 @@ export const appRouter = router({
           await saveConversation({ workspaceId: input.workspaceId, id: conversation.id, messages: conversation.messages as StoredMessage[], plan, status: "planned" });
         }
       }
-      return { success: true, conversationId: session?.conversationId ?? null } as const;
+      const conversation = session ? await getConversation(input.workspaceId, session.conversationId) : null;
+      const nextSession = input.outcome === "completed" && session && conversation?.plan ? await startNextFocusSession({ workspaceId: input.workspaceId, conversationId: session.conversationId, plan: conversation.plan as { steps?: { order: number; action: string; guidance?: string; quantity: string }[]; completedStepOrders?: number[] } }) : null;
+      return { success: true, conversationId: session?.conversationId ?? null, nextSession } as const;
     }),
   }),
 });
