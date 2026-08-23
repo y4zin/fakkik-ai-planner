@@ -4,6 +4,14 @@ import { getDb } from "./db";
 import { plannerConversations, plannerFocusSessions, plannerMemories } from "../drizzle/schema";
 
 export type StoredMessage = { role: "user" | "assistant"; content: string };
+type BlockingSession = { stepTitle: string; status: "running" | "awaiting_reflection" | "completed" | "needs_replan" | "cancelled" };
+
+export function focusStartBlocker(active: BlockingSession | undefined) {
+  if (!active) return null;
+  if (active.status === "running") return `أنهِ جلسة «${active.stepTitle}» أولًا؛ لا يمكن تشغيل مؤقتين معًا.`;
+  if (active.status === "awaiting_reflection") return `أجب عن نتيجة جلسة «${active.stepTitle}» أولًا قبل بدء جلسة جديدة.`;
+  return null;
+}
 
 function parseJson<T>(value: string | null, fallback: T): T {
   if (!value) return fallback;
@@ -73,6 +81,13 @@ export async function deactivateMemory(workspaceId: string, id: string) {
 export async function startFocusSession(input: { workspaceId: string; conversationId: string; stepOrder: number; stepTitle: string; durationSeconds: number }) {
   const db = await requireDb();
   const now = Date.now();
+  const expired = await db.select({ id: plannerFocusSessions.id }).from(plannerFocusSessions)
+    .where(and(eq(plannerFocusSessions.workspaceId, input.workspaceId), eq(plannerFocusSessions.status, "running"), lte(plannerFocusSessions.endsAt, now))).limit(10);
+  if (expired.length) await db.update(plannerFocusSessions).set({ status: "awaiting_reflection", updatedAt: new Date() }).where(inArray(plannerFocusSessions.id, expired.map((session) => session.id)));
+  const active = await db.select({ id: plannerFocusSessions.id, stepTitle: plannerFocusSessions.stepTitle, status: plannerFocusSessions.status }).from(plannerFocusSessions)
+    .where(and(eq(plannerFocusSessions.workspaceId, input.workspaceId), inArray(plannerFocusSessions.status, ["running", "awaiting_reflection"]))).limit(1);
+  const blocker = focusStartBlocker(active[0]);
+  if (blocker) throw new Error(blocker);
   const durationSeconds = Math.max(60, Math.min(input.durationSeconds, 86_400));
   const endsAt = now + durationSeconds * 1000;
   const id = nanoid();
@@ -96,6 +111,15 @@ export async function getConversationSessions(workspaceId: string, conversationI
     .where(and(eq(plannerFocusSessions.workspaceId, workspaceId), eq(plannerFocusSessions.conversationId, conversationId), eq(plannerFocusSessions.status, "running"), lte(plannerFocusSessions.endsAt, now))).limit(10);
   if (expired.length) await db.update(plannerFocusSessions).set({ status: "awaiting_reflection", updatedAt: new Date() }).where(inArray(plannerFocusSessions.id, expired.map((session) => session.id)));
   return db.select().from(plannerFocusSessions).where(and(eq(plannerFocusSessions.workspaceId, workspaceId), eq(plannerFocusSessions.conversationId, conversationId))).orderBy(desc(plannerFocusSessions.updatedAt)).limit(80);
+}
+
+export async function listWorkspaceSessions(workspaceId: string) {
+  const db = await requireDb();
+  const now = Date.now();
+  const expired = await db.select({ id: plannerFocusSessions.id }).from(plannerFocusSessions)
+    .where(and(eq(plannerFocusSessions.workspaceId, workspaceId), eq(plannerFocusSessions.status, "running"), lte(plannerFocusSessions.endsAt, now))).limit(10);
+  if (expired.length) await db.update(plannerFocusSessions).set({ status: "awaiting_reflection", updatedAt: new Date() }).where(inArray(plannerFocusSessions.id, expired.map((session) => session.id)));
+  return db.select().from(plannerFocusSessions).where(eq(plannerFocusSessions.workspaceId, workspaceId)).orderBy(desc(plannerFocusSessions.updatedAt)).limit(80);
 }
 
 export async function getFocusSession(workspaceId: string, sessionId: string) {

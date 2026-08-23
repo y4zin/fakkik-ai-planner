@@ -1,10 +1,10 @@
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { Loader2, Send, User, Sparkles } from "lucide-react";
+import { Check, Copy, Loader2, User, Sparkles } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { Streamdown } from "streamdown";
+import { ChatSendButton } from "@/components/ChatSendButton";
 
 /**
  * Message type matching server-side LLM Message interface
@@ -121,6 +121,7 @@ export function AIChatBox({
   suggestedPrompts,
 }: AIChatBoxProps) {
   const [input, setInput] = useState("");
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputAreaRef = useRef<HTMLFormElement>(null);
@@ -180,10 +181,22 @@ export function AIChatBox({
     textareaRef.current?.focus();
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
+  const copyMessage = async (content: string, index: number) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedIndex(index);
+      window.setTimeout(() => setCopiedIndex((active) => active === index ? null : active), 1_800);
+    } catch {
+      const helper = document.createElement("textarea");
+      helper.value = content;
+      helper.style.position = "fixed";
+      helper.style.opacity = "0";
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand("copy");
+      helper.remove();
+      setCopiedIndex(index);
+      window.setTimeout(() => setCopiedIndex((active) => active === index ? null : active), 1_800);
     }
   };
 
@@ -252,23 +265,11 @@ export function AIChatBox({
                       </div>
                     )}
 
-                    <div
-                      className={cn(
-                        "max-w-[80%] rounded-lg px-4 py-2.5",
-                        message.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-foreground"
-                      )}
-                    >
-                      {message.role === "assistant" ? (
-                        <div className="prose prose-sm dark:prose-invert max-w-none">
-                          <Streamdown>{message.content}</Streamdown>
-                        </div>
-                      ) : (
-                        <p className="whitespace-pre-wrap text-sm">
-                          {message.content}
-                        </p>
-                      )}
+                    <div className={cn("message-bubble max-w-[80%] rounded-lg px-4 py-2.5", message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground")}>
+                      {message.role === "assistant" ? <div className="prose prose-sm dark:prose-invert max-w-none"><Streamdown>{message.content}</Streamdown></div> : <p className="whitespace-pre-wrap text-sm">{message.content}</p>}
+                      <button type="button" className="message-copy" onClick={() => copyMessage(message.content, index)} aria-label={copiedIndex === index ? "تم نسخ الرسالة" : "نسخ الرسالة"} title={copiedIndex === index ? "تم النسخ" : "نسخ الرسالة"}>
+                        {copiedIndex === index ? <Check size={13} /> : <Copy size={13} />}<span>{copiedIndex === index ? "تم النسخ" : "نسخ"}</span>
+                      </button>
                     </div>
 
                     {message.role === "user" && (
@@ -312,23 +313,11 @@ export function AIChatBox({
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className="flex-1 max-h-32 resize-none min-h-9"
-          rows={1}
+          className="flex-1 max-h-32 resize-none min-h-12"
+          rows={2}
         />
-        <Button
-          type="submit"
-          size="icon"
-          disabled={!input.trim() || isLoading}
-          className="shrink-0 h-[38px] w-[38px]"
-        >
-          {isLoading ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <Send className="size-4" />
-          )}
-        </Button>
+        <ChatSendButton disabled={!input.trim() || isLoading} isLoading={isLoading} label="إرسال الرسالة" />
       </form>
     </div>
   );
