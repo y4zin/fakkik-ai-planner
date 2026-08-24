@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import worker, { planningInstruction, splitLongSteps } from "../workers/fakkik-ai-api/src/index";
+import worker, { applyPlanningPolicy, planningInstruction, requestedDurationMinutes, splitLongSteps, walkingPreferenceFromDialogue } from "../workers/fakkik-ai-api/src/index";
 
 describe("Worker الذكاء الاصطناعي المستقل لفكّك", () => {
   it("يرد على preflight من رابط Pages ولا يفتح الوصول لمصدر مجهول", async () => {
@@ -26,6 +26,7 @@ describe("Worker الذكاء الاصطناعي المستقل لفكّك", () 
 
   it("يعيد سؤالًا محددًا من النموذج عندما تتغير الخطة بمعلومة ناقصة ولا يفرض سؤالين قالبين", async () => {
     expect(planningInstruction("أريد أمشي 45 دقيقة", [], [])).toContain("لا تسأل سؤالًا إلا إذا كانت إجابته ستغيّر");
+    expect(planningInstruction("مريح", [], [])).toContain("لا تحوّل ردًا قصيرًا مثل «مريح»");
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ message: "هل هذه جلسة واحدة اليوم أم برنامج متكرر؟", needsClarification: true, plan: null }) }] } }] }));
     const response = await worker.fetch(
       new Request("https://fakkik-ai-api.workers.dev/v1/plan", { method: "POST", headers: { Origin: "https://y4zin.github.io", "Content-Type": "application/json" }, body: JSON.stringify({ message: "أريد أمشي 54 دقيقة", messages: [] }) }),
@@ -42,6 +43,30 @@ describe("Worker الذكاء الاصطناعي المستقل لفكّك", () 
       expect.objectContaining({ title: "المشي — الجزء 2/3", durationMinutes: 20 }),
       expect.objectContaining({ title: "المشي — الجزء 3/3", durationMinutes: 14 }),
     ]);
+  });
+
+  it("يضبط خطة المشي المحددة زمنيًا لتشمل إحماء وفواصل وتهدئة بمجموع المدة المطلوبة", () => {
+    expect(requestedDurationMinutes("أمشي ٥٤ دقيقة اليوم")).toBe(54);
+    const reply = applyPlanningPolicy({
+      message: "هذه خطة عامة.",
+      needsClarification: false,
+      plan: { title: "مشي", summary: "مشي", steps: [{ title: "امشِ", detail: "امشِ براحة.", durationMinutes: 54 }] },
+    }, "أريد المشي 54 دقيقة اليوم، وأنا مبتدئ. أريدها مريحة مع فواصل 3 دقائق. نفّذ خطة واحدة متصلة فيها إحماء وفواصل وتهدئة.", []);
+    expect(reply.needsClarification).toBe(false);
+    expect(reply.plan?.steps.reduce((sum, step) => sum + step.durationMinutes, 0)).toBe(54);
+    expect(reply.plan?.steps.every((step) => step.durationMinutes <= 20)).toBe(true);
+    expect(reply.plan?.steps.some((step) => /إحماء/.test(step.title))).toBe(true);
+    expect(reply.plan?.steps.some((step) => /فاصل/.test(step.title))).toBe(true);
+    expect(reply.plan?.steps.some((step) => /تهدئة/.test(step.title))).toBe(true);
+    expect(reply.plan?.steps.some((step) => step.durationMinutes === 3 && /فاصل/.test(step.title))).toBe(true);
+    expect(reply.plan?.steps.some((step) => /مريح/.test(step.title))).toBe(true);
+  });
+
+  it("يستخرج شدة المشي وفاصل الراحة من الردود السابقة في الحوار", () => {
+    expect(walkingPreferenceFromDialogue("نفّذ الخطة", [{ role: "user", content: "أريدها مريحة مع راحة 4 دقائق بين الجولات" }])).toMatchObject({
+      label: "مريح",
+      breakMinutes: 4,
+    });
   });
 
   it("يرسل طلبًا منظمًا إلى Gemini ولا يعيد المفتاح للعميل", async () => {
