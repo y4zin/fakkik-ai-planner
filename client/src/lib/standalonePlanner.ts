@@ -1,5 +1,14 @@
 import type { ConversationPlanData } from "@/components/ConversationPlan";
 
+export type StandaloneMessage = { role: "user" | "assistant"; content: string };
+export type StandaloneConversation = {
+  id: string;
+  title: string;
+  messages: StandaloneMessage[];
+  plan: ConversationPlanData | null;
+  updatedAt: number;
+};
+
 export type StandalonePlannerReply = {
   message: string;
   needsClarification: boolean;
@@ -9,6 +18,15 @@ export type StandalonePlannerReply = {
     steps: Array<{ title: string; detail: string; durationMinutes: number }>;
   } | null;
 };
+
+export function standaloneConversationTitle(messages: StandaloneMessage[]) {
+  const firstUserMessage = messages.find((message) => message.role === "user")?.content.trim();
+  return firstUserMessage ? firstUserMessage.slice(0, 54) : "محادثة جديدة";
+}
+
+export function upsertStandaloneConversation(conversations: StandaloneConversation[], next: StandaloneConversation) {
+  return [next, ...conversations.filter((conversation) => conversation.id !== next.id)].sort((first, second) => second.updatedAt - first.updatedAt);
+}
 
 export function normalizeStandalonePlan(plan: NonNullable<StandalonePlannerReply["plan"]>): ConversationPlanData {
   return {
@@ -27,11 +45,11 @@ export function normalizeStandalonePlan(plan: NonNullable<StandalonePlannerReply
   };
 }
 
-export async function requestStandalonePlan(endpoint: string, message: string, memories: string[] = []) {
+export async function requestStandalonePlan(endpoint: string, message: string, memories: string[] = [], messages: StandaloneMessage[] = []) {
   const response = await fetch(`${endpoint.replace(/\/$/, "")}/v1/plan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, memories }),
+    body: JSON.stringify({ message, memories, messages }),
   });
 
   const payload = (await response.json().catch(() => null)) as StandalonePlannerReply | { error?: string } | null;

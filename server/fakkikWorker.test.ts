@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import worker from "../workers/fakkik-ai-api/src/index";
+import worker, { applyPlanningPolicy, splitLongSteps } from "../workers/fakkik-ai-api/src/index";
 
 describe("Worker الذكاء الاصطناعي المستقل لفكّك", () => {
   it("يرد على preflight من رابط Pages ولا يفتح الوصول لمصدر مجهول", async () => {
@@ -24,6 +24,27 @@ describe("Worker الذكاء الاصطناعي المستقل لفكّك", () 
     expect(denied.status).toBe(403);
   });
 
+  it("يسأل سؤالين مؤثرين قبل أن يسمح ببناء الخطة", async () => {
+    expect(applyPlanningPolicy(null, "أريد أمشي 54 دقيقة", 1)).toMatchObject({ needsClarification: true, plan: null });
+    expect(applyPlanningPolicy(null, "أريد أمشي 54 دقيقة", 2)).toMatchObject({ needsClarification: true, plan: null });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const response = await worker.fetch(
+      new Request("https://fakkik-ai-api.workers.dev/v1/plan", { method: "POST", headers: { Origin: "https://y4zin.github.io", "Content-Type": "application/json" }, body: JSON.stringify({ message: "أريد أمشي 54 دقيقة", messages: [] }) }),
+      { GEMINI_API_KEY: "secret-value" },
+    );
+    expect(await response.json()).toMatchObject({ needsClarification: true, plan: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockRestore();
+  });
+
+  it("يفكك المدة الطويلة إلى جلسات لا تتجاوز عشرين دقيقة", () => {
+    expect(splitLongSteps([{ title: "المشي", detail: "امشِ بإيقاع مريح.", durationMinutes: 54 }])).toEqual([
+      expect.objectContaining({ title: "المشي — الجزء 1/3", durationMinutes: 20 }),
+      expect.objectContaining({ title: "المشي — الجزء 2/3", durationMinutes: 20 }),
+      expect.objectContaining({ title: "المشي — الجزء 3/3", durationMinutes: 14 }),
+    ]);
+  });
+
   it("يرسل طلبًا منظمًا إلى Gemini ولا يعيد المفتاح للعميل", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       Response.json({
@@ -35,14 +56,14 @@ describe("Worker الذكاء الاصطناعي المستقل لفكّك", () 
       new Request("https://fakkik-ai-api.workers.dev/v1/plan", {
         method: "POST",
         headers: { Origin: "https://y4zin.github.io", "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "نفّذ قراءة 12 صفحة", memories: ["يفضل جلسات قصيرة"] }),
+        body: JSON.stringify({ message: "أريد فهمًا عميقًا في جلسات 15 دقيقة", memories: ["يفضل جلسات قصيرة"], messages: [{ role: "user", content: "أريد القراءة اليوم" }, { role: "assistant", content: "كم صفحة؟" }, { role: "user", content: "12 صفحة" }, { role: "assistant", content: "هل تريد فهمًا عميقًا؟" }, { role: "user", content: "أريد فهمًا عميقًا في جلسات 15 دقيقة" }] }),
       }),
       { GEMINI_API_KEY: "secret-value" },
     );
 
     expect(response.status).toBe(200);
     const publicBody = await response.clone().text();
-    expect(await response.json()).toEqual({ message: "تم", needsClarification: false, plan: null });
+    expect(await response.json()).toEqual({ message: "تم", needsClarification: true, plan: null });
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("gemini-2.5-flash:generateContent");
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("secret-value");
     expect(publicBody).not.toContain("secret-value");
@@ -62,7 +83,7 @@ describe("Worker الذكاء الاصطناعي المستقل لفكّك", () 
             properties: {
               title: { type: "string" },
               detail: { type: "string" },
-              durationMinutes: { type: "integer" },
+              durationMinutes: { type: "integer", minimum: 1, maximum: 20 },
             },
             required: ["title", "detail", "durationMinutes"],
           },
