@@ -1,6 +1,6 @@
 # GitHub Pages — واجهة «فكّك» العامة
 
-تُنشر الواجهة الثابتة إلى GitHub Pages تلقائيًا عند أي دفع إلى الفرع `main`. رابط Pages مفيد لمشاهدة الهوية والواجهة من الهاتف، لكنه **ليس خادم الذكاء الاصطناعي**: لا يحتفظ بمفتاح النموذج، ولا يشغل قاعدة البيانات، ولا ينفذ tRPC/Express.
+تُنشر الواجهة الثابتة إلى GitHub Pages تلقائيًا عند أي دفع إلى الفرع `main`. رابط Pages مفيد لمشاهدة الهوية والواجهة من الهاتف، لكنه **ليس خادم الذكاء الاصطناعي**: لا يحتفظ بمفتاح النموذج، ولا يشغل قاعدة البيانات، ولا ينفذ tRPC/Express. في GitHub Free تتوفر Pages للمستودعات العامة، لذا صار مستودع المشروع عامًا بعد موافقة المالك.[1]
 
 ## ما يعمل على Pages الآن
 
@@ -21,6 +21,7 @@
 
 ## المراجع
 
-[1]: https://developers.cloudflare.com/workers/platform/limits/ "Cloudflare Workers limits"
-[2]: https://ai.google.dev/gemini-api/docs/pricing "Gemini Developer API pricing"
-[3]: https://supabase.com/pricing "Supabase pricing"
+[1]: https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages "What is GitHub Pages?"
+[2]: https://developers.cloudflare.com/workers/platform/limits/ "Cloudflare Workers limits"
+[3]: https://ai.google.dev/gemini-api/docs/pricing "Gemini Developer API pricing"
+[4]: https://supabase.com/pricing "Supabase pricing"

@@ -23,15 +23,15 @@ jobs:
     steps:
       - name: جلب الكود
         uses: actions/checkout@v4
+      - name: إعداد pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
       - name: إعداد Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
-      - name: إعداد pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
       - name: تثبيت الاعتماديات
         run: pnpm install --frozen-lockfile
       - name: بناء الواجهة الثابتة فقط
