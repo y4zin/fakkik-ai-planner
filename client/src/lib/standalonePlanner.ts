@@ -28,6 +28,10 @@ export function upsertStandaloneConversation(conversations: StandaloneConversati
   return [next, ...conversations.filter((conversation) => conversation.id !== next.id)].sort((first, second) => second.updatedAt - first.updatedAt);
 }
 
+export function removeStandaloneConversation(conversations: StandaloneConversation[], id: string) {
+  return conversations.filter((conversation) => conversation.id !== id);
+}
+
 export function normalizeStandalonePlan(plan: NonNullable<StandalonePlannerReply["plan"]>): ConversationPlanData {
   return {
     title: plan.title,

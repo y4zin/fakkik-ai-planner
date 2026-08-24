@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { normalizeStandalonePlan, requestStandalonePlan, standaloneConversationTitle, upsertStandaloneConversation } from "../client/src/lib/standalonePlanner";
+import { normalizeStandalonePlan, removeStandaloneConversation, requestStandalonePlan, standaloneConversationTitle, upsertStandaloneConversation } from "../client/src/lib/standalonePlanner";
 
 describe("ربط الواجهة العامة بـWorker فكّك", () => {
   it("يحوّل الخطة المنظمة إلى خطوات معروضة قابلة للتأشير", () => {
@@ -26,5 +26,6 @@ describe("ربط الواجهة العامة بـWorker فكّك", () => {
     const latest = { id: "latest", title: standaloneConversationTitle([{ role: "user" as const, content: "رتب لي القراءة" }]), messages: [{ role: "user" as const, content: "رتب لي القراءة" }], plan: null, updatedAt: 3 };
     expect(upsertStandaloneConversation([older], latest)).toEqual([latest, older]);
     expect(latest.title).toBe("رتب لي القراءة");
+    expect(removeStandaloneConversation([latest, older], latest.id)).toEqual([older]);
   });
 });
