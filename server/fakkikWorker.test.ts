@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import worker, { applyPlanningPolicy, splitLongSteps } from "../workers/fakkik-ai-api/src/index";
+import worker, { planningInstruction, splitLongSteps } from "../workers/fakkik-ai-api/src/index";
 
 describe("Worker الذكاء الاصطناعي المستقل لفكّك", () => {
   it("يرد على preflight من رابط Pages ولا يفتح الوصول لمصدر مجهول", async () => {
@@ -24,16 +24,15 @@ describe("Worker الذكاء الاصطناعي المستقل لفكّك", () 
     expect(denied.status).toBe(403);
   });
 
-  it("يسأل سؤالين مؤثرين قبل أن يسمح ببناء الخطة", async () => {
-    expect(applyPlanningPolicy(null, "أريد أمشي 54 دقيقة", 1)).toMatchObject({ needsClarification: true, plan: null });
-    expect(applyPlanningPolicy(null, "أريد أمشي 54 دقيقة", 2)).toMatchObject({ needsClarification: true, plan: null });
-    const fetchMock = vi.spyOn(globalThis, "fetch");
+  it("يعيد سؤالًا محددًا من النموذج عندما تتغير الخطة بمعلومة ناقصة ولا يفرض سؤالين قالبين", async () => {
+    expect(planningInstruction("أريد أمشي 45 دقيقة", [], [])).toContain("لا تسأل سؤالًا إلا إذا كانت إجابته ستغيّر");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ candidates: [{ content: { parts: [{ text: JSON.stringify({ message: "هل هذه جلسة واحدة اليوم أم برنامج متكرر؟", needsClarification: true, plan: null }) }] } }] }));
     const response = await worker.fetch(
       new Request("https://fakkik-ai-api.workers.dev/v1/plan", { method: "POST", headers: { Origin: "https://y4zin.github.io", "Content-Type": "application/json" }, body: JSON.stringify({ message: "أريد أمشي 54 دقيقة", messages: [] }) }),
       { GEMINI_API_KEY: "secret-value" },
     );
-    expect(await response.json()).toMatchObject({ needsClarification: true, plan: null });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await response.json()).toEqual({ message: "هل هذه جلسة واحدة اليوم أم برنامج متكرر؟", needsClarification: true, plan: null });
+    expect(fetchMock).toHaveBeenCalledOnce();
     fetchMock.mockRestore();
   });
 

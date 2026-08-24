@@ -59,36 +59,16 @@ function isValidInput(value: PlanInput): value is { message: string; memories: s
     && (value.messages === undefined || (Array.isArray(value.messages) && value.messages.every(isValidTurn)));
 }
 
-function clarificationQuestion(message: string, priorUserTurns: number) {
-  const text = message.toLowerCase();
-  if (/(مشي|أمشي|جري|رياض)/.test(text)) {
-    return priorUserTurns === 0
-      ? "قبل أن أبني الخطة: ما هدفك من المشي تحديدًا—صحة عامة، تحسين لياقة، تخفيف وزن، أم مشي مريح؟"
-      : "سؤال أخير للدقة: ما مستواك الآن، وهل تفضّل مشيًا متصلًا أم فواصل قصيرة مع إحماء وتهدئة؟";
-  }
-  if (/(كتاب|قراءة|صفحة)/.test(text)) {
-    return priorUserTurns === 0
-      ? "قبل أن أقسم القراءة: كم صفحة أو فصلًا تريد إنهاءه، وهل تريد الإنجاز اليوم أم على فترة؟"
-      : "سؤال أخير للدقة: هل هدفك فهم عميق مع تدوين أم قراءة أسرع، وكم دقيقة تستطيع التركيز في الجلسة الواحدة؟";
-  }
-  if (/(حلقة|مسلسل|مشاهدة)/.test(text)) {
-    return priorUserTurns === 0
-      ? "قبل تنظيم المشاهدة: كم حلقة وكم مدة الحلقة، ومتى تريد أن تنهيها؟"
-      : "سؤال أخير للدقة: هل تريد فواصل بين الحلقات أم مشاهدة متتابعة، وما الوقت المتاح لديك؟";
-  }
-  return priorUserTurns === 0
-    ? "قبل أن أبني الخطة: ما النتيجة المحددة التي تريد الوصول إليها، ومتى تريد إتمامها؟"
-    : "سؤال أخير للدقة: كم وقت لديك في كل جلسة، وما العائق أو التفضيل الذي يجب أن أبني الخطة حوله؟";
-}
-
-function planningInstruction(message: string, memories: string[], messages: Array<{ role: "user" | "assistant"; content: string }>) {
+export function planningInstruction(message: string, memories: string[], messages: Array<{ role: "user" | "assistant"; content: string }>) {
   const rememberedContext = memories.length > 0 ? `\nذاكرة مفيدة سابقة:\n- ${memories.join("\n- ")}` : "";
   const dialogue = messages.length > 0 ? `\nسياق الحوار السابق:\n${messages.map((turn) => `${turn.role === "user" ? "المستخدم" : "فكّك"}: ${turn.content}`).join("\n")}` : "";
-  return `أنت محرك التخطيط العربي لتطبيق «فكّك». مهمتك ليست إعطاء نصيحة عامة؛ بل بناء خطة دقيقة قابلة للتأشير. افهم القراءة والمشاهدة والتصفح والدراسة والمهام المركبة.
+  return `أنت محرك التخطيط العربي لتطبيق «فكّك». مهمتك ليست نصيحة عامة ولا محادثة شكلية؛ بل تحويل نية المستخدم إلى خطة دقيقة قابلة للتأشير.
 
-قد طُرحت على المستخدم بالفعل مرحلتا استيضاح أساسيتان. استعمل الإجابات والسياق، ولا تكرر سؤالًا أجيب عنه. إن بقيت معلومة حاسمة ناقصة فقط، أعد needsClarification=true واسأل سؤالًا واحدًا قصيرًا مع plan=null. وإلا أنشئ الخطة الآن.
+اتخذ قرارًا أولًا: لا تسأل سؤالًا إلا إذا كانت إجابته ستغيّر واحدًا من الآتي: عدد الجلسات، توزيع المدة، مستوى السلامة، شدة النشاط، أو موعد الإنجاز. لا تسأل عن «الهدف» بصيغة قائمة عامة عندما تكون النية واضحة من كلام المستخدم. لا تكرر معلومة قالها المستخدم، ولا تطلب سؤالين لمجرد العدد. إذا كان الطلب كافيًا لبناء خطة آمنة، أنشئها فورًا. إذا احتجت استيضاحًا، اسأل سؤالًا واحدًا محددًا يشرح ضمنيًا القرار الذي سيغيّره، واجعل needsClarification=true وplan=null.
 
-قواعد الخطة الإلزامية: لا توجد خطوة أطول من ${maxSessionMinutes} دقيقة. فكك كل نشاط مدته أطول إلى جلسات متتابعة صغيرة، وأضف عند الحاجة إحماءً أو استراحة أو مراجعة. كل خطوة لها فعل واضح، ناتج أو إرشاد عملي، ومدة واقعية. لا تضف تاريخًا أو أيامًا لم يذكرها المستخدم.
+أمثلة قرار صحيحة: في مشي محدد المدة، اسأل فقط عن هل هي جلسة واحدة أم برنامج متكرر، وعن وجود ألم/إصابة أو شدة مطلوبة إذا لم تُذكر؛ هذا يغيّر توزيع الجلسات والسلامة. في القراءة، اسأل فقط عن عدد الصفحات/الموعد/نوع القراءة إذا غاب أحدها. في المشاهدة، اسأل فقط عن عدد الحلقات ومدتها وموعد النهاية إذا غابت.
+
+قواعد الخطة الإلزامية: لا توجد خطوة أطول من ${maxSessionMinutes} دقيقة. فكك النشاط الطويل إلى جلسات متتابعة واضحة، واجعل مجموع مدد الخطوات يطابق المدة التي ذكرها المستخدم عندما يحدد مدة. لا تضف تاريخًا أو أيامًا لم يذكرها المستخدم. لا تستخدم عناوين تجميلية غامضة مثل «خطة مريحة»؛ سمِّ الخطة بالمدة والنتيجة الفعلية. كل خطوة تحتاج فعلًا محددًا وإرشادًا قابلًا للتطبيق.
 
 طلب المستخدم الحالي:\n${message}${dialogue}${rememberedContext}`;
 }
@@ -110,8 +90,10 @@ export function splitLongSteps(steps: PlannerStep[]): PlannerStep[] {
 }
 
 export function applyPlanningPolicy(raw: unknown, message: string, priorUserTurns: number): PlannerReply {
-  if (priorUserTurns <= 2) return { message: clarificationQuestion(message, Math.max(0, priorUserTurns - 1)), needsClarification: true, plan: null };
   const reply = raw as Partial<PlannerReply>;
+  if (reply.needsClarification === true) {
+    return { message: typeof reply.message === "string" ? reply.message : "ما المعلومة التي تريد أن أبني عليها التقسيم؟", needsClarification: true, plan: null };
+  }
   const rawPlan = reply.plan;
   if (!rawPlan || typeof rawPlan !== "object" || !Array.isArray((rawPlan as { steps?: unknown }).steps)) {
     return { message: typeof reply.message === "string" ? reply.message : "أحتاج تفصيلًا أخيرًا كي أبني خطة دقيقة.", needsClarification: true, plan: null };
@@ -152,7 +134,6 @@ const worker = {
     if (!isValidInput(input)) return response({ error: "اكتب رسالة واضحة لا تتجاوز 8000 حرف." }, 400, origin);
     const messages = input.messages ?? [];
     const priorUserTurns = messages.filter((turn) => turn.role === "user").length;
-    if (priorUserTurns <= 2) return response(applyPlanningPolicy(null, input.message.trim(), priorUserTurns), 200, origin);
     try {
       const raw = await createPlan({ message: input.message.trim(), memories: input.memories ?? [], messages }, env.GEMINI_API_KEY);
       return response(applyPlanningPolicy(raw, input.message.trim(), priorUserTurns), 200, origin);
