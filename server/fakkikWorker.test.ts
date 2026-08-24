@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import worker, { applyPlanningPolicy, planningInstruction, requestedDurationMinutes, splitLongSteps, walkingPreferenceFromDialogue } from "../workers/fakkik-ai-api/src/index";
+import worker, { ambiguousShortReplyNeedsClarification, applyPlanningPolicy, planningInstruction, requestedDurationMinutes, splitLongSteps, walkingPreferenceFromDialogue } from "../workers/fakkik-ai-api/src/index";
 
 describe("Worker الذكاء الاصطناعي المستقل لفكّك", () => {
   it("يرد على preflight من رابط Pages ولا يفتح الوصول لمصدر مجهول", async () => {
@@ -67,6 +67,13 @@ describe("Worker الذكاء الاصطناعي المستقل لفكّك", () 
       label: "مريح",
       breakMinutes: 4,
     });
+  });
+
+  it("لا يسمح للرد القصير الملتبس بأن يتحول إلى خطة من دون سؤال سابق يفسره", () => {
+    const rawPlan = { message: "خطة", needsClarification: false, plan: { title: "خطة", summary: "ملخص", steps: [{ title: "خطوة", detail: "تفصيل", durationMinutes: 10 }] } };
+    expect(ambiguousShortReplyNeedsClarification("مريح", [])).toBe(true);
+    expect(applyPlanningPolicy(rawPlan, "مريح", [])).toMatchObject({ needsClarification: true, plan: null });
+    expect(ambiguousShortReplyNeedsClarification("مريح", [{ role: "assistant", content: "هل تريد الإيقاع مريحًا أم سريعًا؟" }])).toBe(false);
   });
 
   it("يرسل طلبًا منظمًا إلى Gemini ولا يعيد المفتاح للعميل", async () => {

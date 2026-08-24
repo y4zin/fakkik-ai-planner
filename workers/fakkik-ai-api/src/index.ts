@@ -29,6 +29,13 @@ function isWalkingRequest(message: string) {
   return /(?:مشي|أمشي|امشي|walking|walk\b)/i.test(message);
 }
 
+export function ambiguousShortReplyNeedsClarification(message: string, messages: ConversationTurn[] = []) {
+  const normalized = normalizeArabicDigits(message).trim().replace(/[.،!؟?]/g, "");
+  if (!/^(?:مريح|مريحة|عادي|عادية|نعم|لا|سريع|سريعة|هادئ|هادئة)$/i.test(normalized)) return false;
+  const lastAssistantQuestion = [...messages].reverse().find((turn) => turn.role === "assistant")?.content ?? "";
+  return !/(?:شدة|إيقاع|وتيرة|سرعة|مريح|هادئ|سريع|كيف تفضل المشي)/i.test(lastAssistantQuestion);
+}
+
 export function walkingPreferenceFromDialogue(message: string, messages: ConversationTurn[] = []): WalkingPreference {
   const userDialogue = [message, ...messages.filter((turn) => turn.role === "user").map((turn) => turn.content)].join(" ");
   const normalized = normalizeArabicDigits(userDialogue);
@@ -171,6 +178,9 @@ export function splitLongSteps(steps: PlannerStep[]): PlannerStep[] {
 }
 
 export function applyPlanningPolicy(raw: unknown, message: string, messages: ConversationTurn[] = []): PlannerReply {
+  if (ambiguousShortReplyNeedsClarification(message, messages)) {
+    return { message: "كلمة «مريح» وحدها لا تكفي لبناء تعديل مؤكد. هل تقصد إيقاع المشي، مدة الجلسة، أم مدة الفواصل؟", needsClarification: true, plan: null };
+  }
   const reply = raw as Partial<PlannerReply>;
   if (reply.needsClarification === true) {
     return { message: typeof reply.message === "string" ? reply.message : "ما المعلومة التي تريد أن أبني عليها التقسيم؟", needsClarification: true, plan: null };
