@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { generatedPlanSchema, planningChatInputSchema, planningSystemPrompt, visibleAssistantContent } from "./planning";
+import { generatedPlanSchema, planningChatInputSchema, planningSystemPrompt, planningUnavailableMessage, visibleAssistantContent } from "./planning";
 
 describe("مساعد فكّك الحواري", () => {
+  it("يعرض رسالة عربية آمنة إذا تعذر محرّك التخطيط بعد حفظ رسالة المستخدم", () => {
+    expect(planningUnavailableMessage()).toContain("رسالتك محفوظة");
+    expect(planningUnavailableMessage()).not.toContain("LLM");
+  });
+
   it("يقبل رسالة حرة داخل مساحة عمل ومحادثة اختيارية", () => {
     const input = planningChatInputSchema.parse({ workspaceId: "workspace-example-123", conversationId: "conversation-123", message: "أريد قراءة كتاب اليوم." });
     expect(input.message).toContain("قراءة");

@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
-import { generatedPlanSchema, planningChatInputSchema, planConversation, visibleAssistantContent } from "./planning";
+import { generatedPlanSchema, planningChatInputSchema, planConversation, planningUnavailableMessage, visibleAssistantContent } from "./planning";
 import { cancelFocusSession, configureFocusMode, createConversation, deactivateMemory, getActionableSessions, getConversation, getConversationSessions, getFocusMode, getFocusSession, listConversations, listMemories, listWorkspaceSessions, resolveFocusSession, saveConversation, saveMemories, startFocusSession, startNextFocusSession, type StoredMessage } from "./plannerStore";
 import { persistUserTurnBeforePlanning } from "./chatTurn";
 
@@ -22,7 +23,13 @@ export const appRouter = router({
       const memories = await listMemories(input.workspaceId);
       const history = conversation.messages as StoredMessage[];
       const updatedHistory = await persistUserTurnBeforePlanning({ workspaceId: input.workspaceId, message: input.message, conversation: { id: conversation.id, title: conversation.title, messages: history, plan: conversation.plan }, saveConversation });
-      const reply = await planConversation(updatedHistory, memories.map((item) => ({ kind: item.kind, content: item.content })));
+      let reply;
+      try {
+        reply = await planConversation(updatedHistory, memories.map((item) => ({ kind: item.kind, content: item.content })));
+      } catch (error) {
+        console.error("[planning] Planner invocation unavailable", error);
+        throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: planningUnavailableMessage() });
+      }
       const assistantContent = visibleAssistantContent(reply);
       const messages = [...updatedHistory, { role: "assistant" as const, content: assistantContent }];
       await saveConversation({ workspaceId: input.workspaceId, id: conversation.id, title: conversation.title === "محادثة تخطيط جديدة" ? input.message : undefined, messages, plan: reply.plan ?? conversation.plan, status: reply.plan ? "planned" : "draft" });
@@ -62,12 +69,12 @@ export const appRouter = router({
     }),
   }),
   focus: router({
-    start: publicProcedure.input(workspaceSchema.extend({ conversationId: z.string().min(6).max(64), stepOrder: z.number().int().min(1), stepTitle: z.string().min(1).max(400), durationSeconds: z.number().int().min(60).max(86_400), strictDurationSeconds: z.number().int().min(60).max(2_592_000).optional(), continuePlan: z.boolean().optional() })).mutation(({ input }) => startFocusSession(input)),
+    start: publicProcedure.input(workspaceSchema.extend({ conversationId: z.string().min(6).max(64), stepOrder: z.number().int().min(1), stepTitle: z.string().min(1).max(400), durationSeconds: z.number().int().min(60).max(86_400), strictDurationSeconds: z.number().int().min(1).max(31_536_000).optional(), continuePlan: z.boolean().optional() })).mutation(({ input }) => startFocusSession(input)),
     actionable: publicProcedure.input(workspaceSchema).query(({ input }) => getActionableSessions(input.workspaceId)),
     listWorkspace: publicProcedure.input(workspaceSchema).query(({ input }) => listWorkspaceSessions(input.workspaceId)),
     listForConversation: publicProcedure.input(workspaceSchema.extend({ conversationId: z.string().min(6).max(64) })).query(({ input }) => getConversationSessions(input.workspaceId, input.conversationId)),
     mode: publicProcedure.input(workspaceSchema).query(({ input }) => getFocusMode(input.workspaceId)),
-    configureMode: publicProcedure.input(workspaceSchema.extend({ strictDurationSeconds: z.number().int().min(60).max(2_592_000).nullable().optional(), continuePlan: z.boolean(), conversationId: z.string().min(6).max(64).nullable().optional() })).mutation(({ input }) => configureFocusMode(input)),
+    configureMode: publicProcedure.input(workspaceSchema.extend({ strictDurationSeconds: z.number().int().min(1).max(31_536_000).nullable().optional(), continuePlan: z.boolean(), conversationId: z.string().min(6).max(64).nullable().optional() })).mutation(({ input }) => configureFocusMode(input)),
     cancel: publicProcedure.input(workspaceSchema.extend({ sessionId: z.string().min(6).max(64) })).mutation(({ input }) => cancelFocusSession(input)),
     resolve: publicProcedure.input(workspaceSchema.extend({ sessionId: z.string().min(6).max(64), outcome: z.enum(["completed", "needs_replan"]), obstacle: z.string().max(1500).optional() })).mutation(async ({ input }) => {
       const session = await resolveFocusSession(input);

@@ -21,11 +21,14 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   startLogin();
 };
 
+const isHandledPlannerAvailabilityError = (error: unknown) =>
+  error instanceof TRPCClientError && error.message.includes("تعذّر الوصول إلى محرّك التخطيط الآن.");
+
 queryClient.getQueryCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.query.state.error;
     redirectToLoginIfUnauthorized(error);
-    console.error("[API Query Error]", error);
+    if (!isHandledPlannerAvailabilityError(error)) console.error("[API Query Error]", error);
   }
 });
 
@@ -33,7 +36,7 @@ queryClient.getMutationCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.mutation.state.error;
     redirectToLoginIfUnauthorized(error);
-    console.error("[API Mutation Error]", error);
+    if (!isHandledPlannerAvailabilityError(error)) console.error("[API Mutation Error]", error);
   }
 });
 

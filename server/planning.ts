@@ -11,6 +11,10 @@ export const plannerReplySchema = z.object({ assistantMessage: z.string().min(1)
 export type GeneratedPlan = z.infer<typeof generatedPlanSchema>;
 export type PlannerReply = z.infer<typeof plannerReplySchema>;
 
+export function planningUnavailableMessage() {
+  return "تعذّر الوصول إلى محرّك التخطيط الآن. رسالتك محفوظة؛ أعد المحاولة بعد قليل.";
+}
+
 const replyJsonSchema = { name: "fakkik_planner_reply", strict: true, schema: { type: "object", properties: {
   assistantMessage: { type: "string" }, status: { type: "string", enum: ["needs_context", "plan_ready"] }, missingDetail: { type: ["string", "null"] },
   plan: { type: ["object", "null"], properties: { title: { type: "string" }, summary: { type: "string" }, scheduleMode: { type: "string", enum: ["today", "date_specific", "days_of_week", "flexible"] }, scheduleNote: { type: "string" }, steps: { type: "array", items: { type: "object", properties: { order: { type: "integer" }, when: { type: "string" }, action: { type: "string" }, guidance: { type: "string" }, quantity: { type: "string" } }, required: ["order", "when", "action", "guidance", "quantity"], additionalProperties: false } } }, required: ["title", "summary", "scheduleMode", "scheduleNote", "steps"], additionalProperties: false },

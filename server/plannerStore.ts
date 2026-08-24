@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, lte } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { durationSecondsFromPlanText } from "@shared/planDuration";
 import { getDb } from "./db";
 import { plannerConversations, plannerFocusModes, plannerFocusSessions, plannerMemories } from "../drizzle/schema";
 
@@ -40,12 +41,8 @@ async function requireDb() {
   return db;
 }
 
-function durationFromText(text: string) {
-  const normalized = text.replace(/[٠-٩]/g, (digit) => String("٠١٢٣٤٥٦٧٨٩".indexOf(digit)));
-  const minutes = normalized.match(/(\d+)\s*(?:دقيقة|دقائق|min)/i);
-  if (minutes) return Number(minutes[1]) * 60;
-  const hours = normalized.match(/(\d+)\s*(?:ساعة|ساعات|hour)/i);
-  return hours ? Number(hours[1]) * 3600 : 25 * 60;
+export function durationFromText(text: string) {
+  return durationSecondsFromPlanText(text);
 }
 
 async function currentFocusMode(workspaceId: string): Promise<FocusModeSnapshot> {
@@ -68,7 +65,7 @@ export async function configureFocusMode(input: { workspaceId: string; strictDur
   if (changeBlocker) throw new Error(changeBlocker);
   const strictEndsAt = input.strictDurationSeconds === undefined
     ? current.strictEndsAt
-    : input.strictDurationSeconds ? Date.now() + Math.max(60, Math.min(input.strictDurationSeconds, 2_592_000)) * 1000 : null;
+    : input.strictDurationSeconds ? Date.now() + Math.max(1, Math.min(input.strictDurationSeconds, 31_536_000)) * 1000 : null;
   const conversationId = input.conversationId ?? null;
   await db.insert(plannerFocusModes).values({ workspaceId: input.workspaceId, strictEndsAt, continuePlan: input.continuePlan, conversationId })
     .onDuplicateKeyUpdate({ set: { strictEndsAt, continuePlan: input.continuePlan, conversationId, updatedAt: new Date() } });
@@ -141,7 +138,8 @@ export async function startFocusSession(input: { workspaceId: string; conversati
   if (blocker) throw new Error(blocker);
   let mode = await currentFocusMode(input.workspaceId);
   if (input.strictDurationSeconds !== undefined || input.continuePlan !== undefined) {
-    mode = await configureFocusMode({ workspaceId: input.workspaceId, strictDurationSeconds: input.strictDurationSeconds ?? (mode.strictEndsAt ? Math.ceil((mode.strictEndsAt - now) / 1000) : null), continuePlan: input.continuePlan ?? mode.continuePlan, conversationId: input.conversationId });
+    const remainingStrictSeconds = mode.strictEndsAt ? Math.ceil((mode.strictEndsAt - now) / 1000) : null;
+    mode = await configureFocusMode({ workspaceId: input.workspaceId, strictDurationSeconds: input.strictDurationSeconds ?? (remainingStrictSeconds && remainingStrictSeconds > 0 ? remainingStrictSeconds : null), continuePlan: input.continuePlan ?? mode.continuePlan, conversationId: input.conversationId });
   }
   const durationSeconds = Math.max(60, Math.min(input.durationSeconds, 86_400));
   const endsAt = now + durationSeconds * 1000;

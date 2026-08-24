@@ -8,6 +8,8 @@ describe("قواعد الوضع الصارم", () => {
     expect(strictDurationFor("٣٨ دقيقة")).toBe(2_280);
     expect(strictDurationFor("10 أيام")).toBe(864_000);
     expect(strictDurationFor("93 ثانية")).toBe(93);
+    expect(strictDurationFor("1 ثانية")).toBe(1);
+    expect(strictDurationFor("سنة واحدة")).toBe(31_536_000);
   });
 
   it("يمنع إلغاء الجلسة فقط قبل انتهاء القفل", () => {
