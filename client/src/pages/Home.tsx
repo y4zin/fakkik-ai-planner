@@ -11,35 +11,42 @@ import ExecutionBoard from "@/components/ExecutionBoard";
 import { ChatSendButton } from "@/components/ChatSendButton";
 import { trpc } from "@/lib/trpc";
 import { strictDurationFor } from "@/lib/strictMode";
+import { normalizeStandalonePlan, requestStandalonePlan } from "@/lib/standalonePlanner";
 
 type Tab = "chat" | "session" | "progress" | "history";
 type PlannerMessage = Pick<Message, "role" | "content">;
 const openingMessage: PlannerMessage = { role: "assistant", content: "أهلًا، أنا **فكّك**. أخبرني بما تريد إنجازه وبالطريقة التي تناسبك. أستطيع تنظيم القراءة، المسلسلات، التصفح، الدراسة، والمهام المركبة، وسأحفظ ما يفيدك في المرات القادمة." };
 const examples = ["أريد مشاهدة 7 حلقات، كل حلقة 45 دقيقة، مع إنهاء 80 صفحة من كتاب", "أريد قراءة 340 صفحة اليوم فقط", "أريد تصفح إنستغرام 20 دقيقة بلا تشتت ثم العودة للعمل"];
+const standalonePlannerUrl = import.meta.env.VITE_FAKKIK_AI_URL;
+const standaloneStorageKey = "fakkik-pages-conversation";
 
 function workspaceKey() { const key = "fakkik-workspace-id"; let value = window.localStorage.getItem(key); if (!value) { value = crypto.randomUUID(); window.localStorage.setItem(key, value); } return value; }
 function durationFor(step: ConversationPlanData["steps"][number]) { return durationSecondsFromPlanText(`${step.quantity} ${step.guidance}`); }
 function countdown(seconds: number) { const safe = Math.max(0, seconds); const hours = Math.floor(safe / 3600); const minutes = Math.floor((safe % 3600) / 60); const rest = safe % 60; return hours ? `${hours}س ${minutes}د` : minutes ? `${minutes}د ${rest}ث` : `${rest}ث`; }
+function publishedConversation() { try { const value = window.localStorage.getItem(standaloneStorageKey); return value ? JSON.parse(value) as { messages?: PlannerMessage[]; plan?: ConversationPlanData | null } : null; } catch { return null; } }
 
 export default function Home() {
+  const isStandalone = Boolean(standalonePlannerUrl);
+  const savedConversation = isStandalone ? publishedConversation() : null;
   const [workspaceId] = useState(workspaceKey);
   const [tab, setTab] = useState<Tab>("chat");
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<PlannerMessage[]>([openingMessage]);
-  const [plan, setPlan] = useState<ConversationPlanData | null>(null);
+  const [messages, setMessages] = useState<PlannerMessage[]>(savedConversation?.messages?.length ? savedConversation.messages : [openingMessage]);
+  const [plan, setPlan] = useState<ConversationPlanData | null>(savedConversation?.plan ?? null);
   const [chatNotice, setChatNotice] = useState<string | null>(null);
+  const [standalonePending, setStandalonePending] = useState(false);
   const [repairSession, setRepairSession] = useState<FocusSessionView | null>(null);
   const [obstacle, setObstacle] = useState("");
   const [strictInput, setStrictInput] = useState("10 ساعات");
   const [clockNow, setClockNow] = useState(() => Date.now());
   const utils = trpc.useUtils();
-  const historyQuery = trpc.planning.list.useQuery({ workspaceId });
-  const memoriesQuery = trpc.planning.memories.useQuery({ workspaceId });
-  const detailQuery = trpc.planning.get.useQuery({ workspaceId, conversationId: currentConversationId ?? "unselected" }, { enabled: Boolean(currentConversationId) });
-  const sessionQuery = trpc.focus.listForConversation.useQuery({ workspaceId, conversationId: currentConversationId ?? "unselected" }, { enabled: Boolean(currentConversationId), refetchInterval: 10_000 });
-  const actionableQuery = trpc.focus.actionable.useQuery({ workspaceId }, { refetchInterval: 10_000 });
-  const workspaceSessionsQuery = trpc.focus.listWorkspace.useQuery({ workspaceId }, { refetchInterval: 10_000 });
-  const modeQuery = trpc.focus.mode.useQuery({ workspaceId }, { refetchInterval: 10_000 });
+  const historyQuery = trpc.planning.list.useQuery({ workspaceId }, { enabled: !isStandalone });
+  const memoriesQuery = trpc.planning.memories.useQuery({ workspaceId }, { enabled: !isStandalone });
+  const detailQuery = trpc.planning.get.useQuery({ workspaceId, conversationId: currentConversationId ?? "unselected" }, { enabled: !isStandalone && Boolean(currentConversationId) });
+  const sessionQuery = trpc.focus.listForConversation.useQuery({ workspaceId, conversationId: currentConversationId ?? "unselected" }, { enabled: !isStandalone && Boolean(currentConversationId), refetchInterval: isStandalone ? false : 10_000 });
+  const actionableQuery = trpc.focus.actionable.useQuery({ workspaceId }, { enabled: !isStandalone, refetchInterval: isStandalone ? false : 10_000 });
+  const workspaceSessionsQuery = trpc.focus.listWorkspace.useQuery({ workspaceId }, { enabled: !isStandalone, refetchInterval: isStandalone ? false : 10_000 });
+  const modeQuery = trpc.focus.mode.useQuery({ workspaceId }, { enabled: !isStandalone, refetchInterval: isStandalone ? false : 10_000 });
   const announcedSessionRef = useRef<string | null>(null);
 
   useEffect(() => { const detail = detailQuery.data; if (!detail || detail.id !== currentConversationId) return; setMessages(detail.messages.length ? detail.messages : [openingMessage]); setPlan((detail.plan as ConversationPlanData | null) ?? null); }, [currentConversationId, detailQuery.data?.id, detailQuery.data?.updatedAt]);
@@ -54,6 +61,7 @@ export default function Home() {
   const nextPlanStep = plan?.steps.find((step) => !completedOrders.includes(step.order) && step.order !== currentSession?.stepOrder) ?? null;
 
   useEffect(() => { if (!strictActive) return; const timeout = window.setTimeout(() => setClockNow(Date.now()), 1_000); return () => window.clearTimeout(timeout); }, [strictActive, clockNow]);
+  useEffect(() => { if (isStandalone) window.localStorage.setItem(standaloneStorageKey, JSON.stringify({ messages, plan })); }, [isStandalone, messages, plan]);
 
   useEffect(() => {
     if (!awaiting || announcedSessionRef.current === awaiting.id) return;
@@ -73,12 +81,25 @@ export default function Home() {
 
   const sendMessage = (content: string) => {
     const message = content.trim();
-    if (!message || chatMutation.isPending) return;
+    if (!message || chatMutation.isPending || standalonePending) return;
     setChatNotice(null);
     setMessages((previous) => [...previous, { role: "user", content: message }]);
+    if (isStandalone && standalonePlannerUrl) {
+      setStandalonePending(true);
+      void requestStandalonePlan(standalonePlannerUrl, message).then((reply) => {
+        setMessages((previous) => [...previous, { role: "assistant", content: reply.message }]);
+        if (reply.plan) setPlan(normalizeStandalonePlan(reply.plan));
+        toast.success(reply.plan ? "كوّن فكّك خطة قابلة للتأشير." : "حفظ فكّك الإجابة ويتابع معك.");
+      }).catch((error: unknown) => {
+        const notice = error instanceof Error ? error.message : "تعذّر الوصول إلى محرّك التخطيط الآن.";
+        setChatNotice(notice);
+        toast.error(notice);
+      }).finally(() => setStandalonePending(false));
+      return;
+    }
     chatMutation.mutate({ workspaceId, conversationId: currentConversationId ?? undefined, message });
   };
-  const newConversation = () => { setCurrentConversationId(null); setMessages([openingMessage]); setPlan(null); setTab("chat"); toast.message("بدأت محادثة جديدة؛ ستبقى المحادثات السابقة في المحفوظات."); };
+  const newConversation = () => { setCurrentConversationId(null); setMessages([openingMessage]); setPlan(null); if (isStandalone) window.localStorage.removeItem(standaloneStorageKey); setTab("chat"); toast.message(isStandalone ? "بدأت محادثة جديدة على هذا الجهاز." : "بدأت محادثة جديدة؛ ستبقى المحادثات السابقة في المحفوظات."); };
   const startStep = (step: ConversationPlanData["steps"][number]) => { if (!currentConversationId) return toast.error("أرسل الخطة أولًا حتى نستطيع حفظ الجلسة."); if ("Notification" in window && Notification.permission === "default") void Notification.requestPermission(); startMutation.mutate({ workspaceId, conversationId: currentConversationId, stepOrder: step.order, stepTitle: step.action, durationSeconds: durationFor(step) }); };
   const persistPlan = (next: ConversationPlanData) => { setPlan(next); if (currentConversationId) updatePlanMutation.mutate({ workspaceId, conversationId: currentConversationId, plan: next }); };
   const toggleStep = (order: number) => { if (!plan) return; const completed = plan.completedStepOrders ?? []; persistPlan({ ...plan, completedStepOrders: completed.includes(order) ? completed.filter((item) => item !== order) : [...completed, order] }); };
@@ -92,7 +113,7 @@ export default function Home() {
     <nav className="app-tabs app-tabs-four" aria-label="أقسام فكّك"><button className={tab === "chat" ? "active" : ""} onClick={() => setTab("chat")}><BotMessageSquare size={16} /> المحادثة</button><button className={tab === "session" ? "active" : ""} onClick={() => setTab("session")}><Clock3 size={16} /> جلسة الآن{currentSession && <i />}</button><button className={tab === "progress" ? "active" : ""} onClick={() => setTab("progress")}><ListChecks size={16} /> التنفيذ</button><button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}><History size={16} /> المحفوظات</button></nav>
     {tab === "chat" && <>
       <section className="chat-intro"><span><Sparkles size={15} /> يتذكر ما يفيدك، لا ما يربكك</span><h1>حوّل نيتك إلى<br /><em>جلسات قابلة للإنجاز.</em></h1><p>يمكنك جمع كتاب ومسلسل وتصفح في رسالة واحدة. يفهم فكّك القياسات والوقت والعوائق، ويحفظ الأنماط التي تجعل خططك أفضل لاحقًا.</p><div className="decomposition-proof" aria-label="مثال تفكيك كمي"><small>مثال فكّك الدقيق</small><div><b>340 صفحة</b><i /><b>16 جلسة</b><i /><b>48 خطوة</b><i /><b>إنجاز</b></div></div></section>
-      <section className="conversation-card"><div className="conversation-card-head"><span className="chat-status"><i /> مساعد التخطيط يتذكر السياق</span><span>{currentConversationId ? "محادثة محفوظة" : "محادثة جديدة"}</span></div><AIChatBox messages={messages as Message[]} onSendMessage={sendMessage} isLoading={chatMutation.isPending} height="390px" placeholder="اكتب المهمة أو أجب على سؤال فكّك…" className="fakkik-chatbox" suggestedPrompts={messages.length === 1 ? examples : undefined} /></section>
+      <section className="conversation-card"><div className="conversation-card-head"><span className="chat-status"><i /> مساعد التخطيط يتذكر السياق</span><span>{isStandalone ? "محفوظ على هذا الجهاز" : currentConversationId ? "محادثة محفوظة" : "محادثة جديدة"}</span></div><AIChatBox messages={messages as Message[]} onSendMessage={sendMessage} isLoading={chatMutation.isPending || standalonePending} height="390px" placeholder="اكتب المهمة أو أجب على سؤال فكّك…" className="fakkik-chatbox" suggestedPrompts={messages.length === 1 ? examples : undefined} /></section>
       {chatNotice && <div className="chat-recovery" role="status"><strong>الرسالة محفوظة</strong><span>{chatNotice}</span></div>}
       {plan ? <ConversationPlan plan={plan} sessions={sessionState} activeSessionTitle={currentSession?.stepTitle} onStart={startStep} onToggle={toggleStep} /> : <section className="plan-waiting"><MessageCircleMore size={20} /><div><strong>ابدأ بحوار واحد واضح.</strong><span>يطلب فكّك التفاصيل المؤثرة فقط، ثم يحفظ الخطة لتعود إليها في أي وقت.</span></div></section>}
     </>}

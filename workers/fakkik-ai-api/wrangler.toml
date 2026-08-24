@@ -1,0 +1,6 @@
+name = "fakkik-ai-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-24"
+
+# GEMINI_API_KEY is a Worker secret. Set it only with:
+# wrangler secret put GEMINI_API_KEY
