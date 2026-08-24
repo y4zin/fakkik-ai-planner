@@ -76,6 +76,17 @@ describe("Worker الذكاء الاصطناعي المستقل لفكّك", () 
     expect(ambiguousShortReplyNeedsClarification("مريح", [{ role: "assistant", content: "هل تريد الإيقاع مريحًا أم سريعًا؟" }])).toBe(false);
   });
 
+  it("يعيد سؤال التوضيح القصير قبل استدعاء Gemini", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const response = await worker.fetch(
+      new Request("https://fakkik-ai-api.workers.dev/v1/plan", { method: "POST", headers: { Origin: "https://y4zin.github.io", "Content-Type": "application/json" }, body: JSON.stringify({ message: "مريح", messages: [] }) }),
+      { GEMINI_API_KEY: "secret-value" },
+    );
+    expect(await response.json()).toMatchObject({ needsClarification: true, plan: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockRestore();
+  });
+
   it("يرسل طلبًا منظمًا إلى Gemini ولا يعيد المفتاح للعميل", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       Response.json({

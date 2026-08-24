@@ -36,6 +36,10 @@ export function ambiguousShortReplyNeedsClarification(message: string, messages:
   return !/(?:شدة|إيقاع|وتيرة|سرعة|مريح|هادئ|سريع|كيف تفضل المشي)/i.test(lastAssistantQuestion);
 }
 
+function ambiguousReplyClarification(): PlannerReply {
+  return { message: "كلمة «مريح» وحدها لا تكفي لبناء تعديل مؤكد. هل تقصد إيقاع المشي، مدة الجلسة، أم مدة الفواصل؟", needsClarification: true, plan: null };
+}
+
 export function walkingPreferenceFromDialogue(message: string, messages: ConversationTurn[] = []): WalkingPreference {
   const userDialogue = [message, ...messages.filter((turn) => turn.role === "user").map((turn) => turn.content)].join(" ");
   const normalized = normalizeArabicDigits(userDialogue);
@@ -179,7 +183,7 @@ export function splitLongSteps(steps: PlannerStep[]): PlannerStep[] {
 
 export function applyPlanningPolicy(raw: unknown, message: string, messages: ConversationTurn[] = []): PlannerReply {
   if (ambiguousShortReplyNeedsClarification(message, messages)) {
-    return { message: "كلمة «مريح» وحدها لا تكفي لبناء تعديل مؤكد. هل تقصد إيقاع المشي، مدة الجلسة، أم مدة الفواصل؟", needsClarification: true, plan: null };
+    return ambiguousReplyClarification();
   }
   const reply = raw as Partial<PlannerReply>;
   if (reply.needsClarification === true) {
@@ -232,6 +236,7 @@ const worker = {
     try { input = await request.json(); } catch { return response({ error: "أرسل طلب التخطيط بصيغة JSON صحيحة." }, 400, origin); }
     if (!isValidInput(input)) return response({ error: "اكتب رسالة واضحة لا تتجاوز 8000 حرف." }, 400, origin);
     const messages = input.messages ?? [];
+    if (ambiguousShortReplyNeedsClarification(input.message.trim(), messages)) return response(ambiguousReplyClarification(), 200, origin);
     try {
       const raw = await createPlan({ message: input.message.trim(), memories: input.memories ?? [], messages }, env.GEMINI_API_KEY);
       return response(applyPlanningPolicy(raw, input.message.trim(), messages), 200, origin);
